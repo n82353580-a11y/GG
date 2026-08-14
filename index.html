@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>琉璃围棋 · 小G陪你玩</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;padding:16px;min-height:100vh;
+ background:linear-gradient(135deg,#f7ead3,#c8a879);
+ font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;
+ color:#382b20;
+}
+h1{text-align:center;margin:8px 0 3px}
+.sub{text-align:center;color:#806b55;font-size:13px;margin-bottom:14px}
+.box{
+ max-width:620px;margin:auto;background:#fffaf0cc;
+ padding:14px;border-radius:22px;
+ box-shadow:0 10px 30px #60452a33;
+}
+canvas{
+ display:block;width:100%;aspect-ratio:1;
+ touch-action:none;border-radius:12px;
+}
+.info{
+ margin-top:12px;padding:14px;border-radius:16px;
+ background:#ffffff99;line-height:1.6;
+}
+#status{font-weight:bold;font-size:17px}
+#msg{font-size:14px;min-height:45px}
+button{
+ border:0;border-radius:11px;padding:11px 15px;
+ margin:3px;background:#57483b;color:white;font-size:14px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>琉璃围棋</h1>
+<div class="sub">和小G一起，从完全不会开始学围棋 ♡</div>
+
+<div class="box">
+<canvas id="board"></canvas>
+
+<div class="info">
+<div id="status">轮到你 · 黑棋</div>
+<div id="msg">点击棋盘上的交叉点，就可以落子啦。</div>
+
+<button onclick="newGame()">新的一局</button>
+<button onclick="undo()">悔棋</button>
+<button onclick="passGame()">停一手</button>
+
+<hr>
+
+<b>🌱 新手提示</b>
+<br>
+棋子上下左右相邻的空位叫“气”。
+<br>
+把对方棋子的气全部堵住，就可以把它吃掉。
+<br>
+你不用记很多规则，我会陪你慢慢学。
+</div>
+</div>
+
+<script>
+
+const canvas=document.getElementById("board");
+const ctx=canvas.getContext("2d");
+
+const N=9;
+
+let board=[];
+let turn=1;
+let history=[];
+let gameOver=false;
+
+function newBoard(){
+ return Array.from({length:N},()=>Array(N).fill(0));
+}
+
+function copy(b){
+ return b.map(r=>r.slice());
+}
+
+function inside(x,y){
+ return x>=0&&x<N&&y>=0&&y<N;
+}
+
+function around(x,y){
+ return [
+  [x-1,y],
+  [x+1,y],
+  [x,y-1],
+  [x,y+1]
+ ].filter(p=>inside(p[0],p[1]));
+}
+
+function group(b,x,y){
+
+ const color=b[x][y];
+ const result=[];
+ const seen=new Set();
+ const queue=[[x,y]];
+
+ while(queue.length){
+
+  const [a,d]=queue.pop();
+  const key=a+","+d;
+
+  if(seen.has(key))continue;
+
+  seen.add(key);
+  result.push([a,d]);
+
+  around(a,d).forEach(([nx,ny])=>{
+   if(b[nx][ny]===color)
+    queue.push([nx,ny]);
+  });
+
+ }
+
+ return result;
+}
+
+function liberties(b,g){
+
+ const set=new Set();
+
+ g.forEach(([x,y])=>{
+  around(x,y).forEach(([nx,ny])=>{
+   if(b[nx][ny]===0)
+    set.add(nx+","+ny);
+  });
+ });
+
+ return set.size;
+}
+
+function same(a,b){
+ return JSON.stringify(a)===JSON.stringify(b);
+}
+
+function tryMove(x,y,color){
+
+ if(board[x][y]!==0)
+  return null;
+
+ const b=copy(board);
+
+ b[x][y]=color;
+
+ let captured=0;
+
+ around(x,y).forEach(([nx,ny])=>{
+
+  if(b[nx][ny]===-color){
+
+   const g=group(b,nx,ny);
+
+   if(liberties(b,g)===0){
+
+    g.forEach(([gx,gy])=>{
+     b[gx][gy]=0;
+     captured++;
+    });
+
+   }
+
+  }
+
+ });
+
+ const own=group(b,x,y);
+
+ if(liberties(b,own)===0)
+  return null;
+
+ if(
+  history.length &&
+  same(b,history[history.length-1])
+ )
+  return null;
+
+ return {
+  board:b,
+  captured:captured
+ };
+
+}
+
+function move(x,y,color){
+
+ const result=tryMove(x,y,color);
+
+ if(!result){
+
+  document.getElementById("msg").textContent=
+   "这里不能下哦。试试附近的位置。";
+
+  return false;
+ }
+
+ history.push(copy(board));
+
+ board=result.board;
+
+ turn=-turn;
+
+ if(result.captured)
+  document.getElementById("msg").textContent=
+   "漂亮！你吃掉了 "+result.captured+" 颗棋子。";
+ else
+  document.getElementById("msg").textContent=
+   "落子成功。看看你的棋子还有几口气。";
+
+ update();
+ draw();
+
+ return true;
+}
+
+function update(){
+
+ document.getElementById("status").textContent=
+  turn===1
+  ?"轮到你 · 黑棋"
+  :"小G思考中 · 白棋";
+
+}
+
+function ai(){
+
+ const moves=[];
+
+ for(let x=0;x<N;x++){
+  for(let y=0;y<N;y++){
+
+   if(tryMove(x,y,-1))
+    moves.push([x,y]);
+
+  }
+ }
+
+ if(!moves.length){
+
+  gameOver=true;
+  document.getElementById("msg").textContent=
+   "小G没有地方可以下了，这局先结束吧。";
+
+  return;
+ }
+
+ /*
+   给小G一个非常简单的入门 AI：
+   优先吃子，然后稍微偏向棋盘中央。
+ */
+ let best=moves[0];
+ let score=-999;
+
+ moves.forEach(([x,y])=>{
+
+  const r=tryMove(x,y,-1);
+
+  let s=r.captured*10;
+
+  s+=
+   (4-Math.abs(x-4))+
+   (4-Math.abs(y-4));
+
+  s+=Math.random()*2;
+
+  if(s>score){
+
+   score=s;
+   best=[x,y];
+
+  }
+
+ });
+
+ setTimeout(()=>{
+
+  if(!gameOver)
+   move(best[0],best[1],-1);
+
+ },500);
+
+}
+
+function undo(){
+
+ if(!history.length||turn!==1)
+  return;
+
+ board=history.pop();
+
+ turn=1;
+
+ document.getElementById("msg").textContent=
+  "已经悔棋啦。换个地方试试看。";
+
+ update();
+ draw();
+
+}
+
+function passGame(){
+
+ if(turn!==1||gameOver)
+  return;
+
+ document.getElementById("msg").textContent=
+  "你停一手，小G准备下棋……";
+
+ turn=-1;
+
+ update();
+
+ ai();
+
+}
+
+function newGame(){
+
+ board=newBoard();
+ turn=1;
+ history=[];
+ gameOver=false;
+
+ document.getElementById("msg").textContent=
+  "点击棋盘上的交叉点，就可以落子啦。";
+
+ update();
+ draw();
+
+}
+
+function resize(){
+
+ const size=Math.min(
+  canvas.parentElement.clientWidth-28,
+  600
+ );
+
+ const d=window.devicePixelRatio||1;
+
+ canvas.width=size*d;
+ canvas.height=size*d;
+
+ draw();
+
+}
+
+function draw(){
+
+ const w=canvas.width;
+
+ if(!w)return;
+
+ ctx.clearRect(0,0,w,w);
+
+ const pad=w*.07;
+ const step=(w-pad*2)/(N-1);
+
+ /*
+  棋盘
+ */
+
+ const bg=ctx.createLinearGradient(
+  0,0,w,w
+ );
+
+ bg.addColorStop(0,"#efd39a");
+ bg.addColorStop(.5,"#dcb97d");
+ bg.addColorStop(1,"#c59a5c");
+
+ ctx.fillStyle=bg;
+ ctx.fillRect(0,0,w,w);
+
+ /*
+  棋盘线
+ */
+
+ ctx.strokeStyle="#62452b";
+ ctx.lineWidth=Math.max(1,w/700);
+
+ for(let i=0;i<N;i++){
+
+  const p=pad+i*step;
+
+  ctx.beginPath();
+  ctx.moveTo(p,pad);
+  ctx.lineTo(p,w-pad);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(pad,p);
+ctx.lineTo(w-pad，p)；
+  ctx.stroke();
+
+ }
+
+ /*
+  星位
+ */
+
+ [[2,2],[2,6],[4,4],[6,2],[6,6]]
+.forEach(([x，y])=>{
+
+ctx.beginPath()；
+
+  ctx.arc(
+   pad+y*step,
+   pad+x*step,
+W*.012，
+   0,
+   Math.PI*2
+  );
+
+ctx.fillStyle="#503522"；
+ctx.fill()；
+
+ });
+
+ /*
+  棋子
+ */
+
+for(设x=0；x<N；x++){
+for(设y=0；y<N；y++){
+
+if(board[x][y]！==0){
+
+石头(
+pad+y*步长，
+pad+x*步长，
+板[x][y]
+    );
+
+   }
+
+  }
+ }
+
+}
+
+function stone(cx,cy,color){
+
+Const r=canvas.width*.043；
+
+ctx.save()；
+ctx.translate(cx，cy)；
+
+ctx.beginPath()；
+
+ctx.arc(
+0，0，r，
+0，Math.PI*2
+ );
+
+设g；
+
+if(color===1){
+
+G=ctx.createRadialGradient(
+-r*.35,-r*.4,r*.03,
+0，0，r
+  );
+
+g.addColorStop(0，"#fffff")；
+g.addColorStop(.18，"#dfffff")；
+g.addColorStop(.45，"#71ced9")；
+g.addColorStop(.78，"#168495")；
+g.addColorStop(1，"#064c5b")；
+
+}else{
+
+G=ctx.createRadialGradient(
+-r*.35,-r*.4,r*.03,
+0，0，r
+  );
+
+g.addColorStop(0，"#fffff")；
+g.addColorStop(.18，"#fff4ff")；
+g.addColorStop(.45，"#d6b0e6")；
+g.addColorStop(.78，"#84509d")；
+g.addColorStop(1，"#48275a")；
+
+ }
+
+ctx.fillStyle=g；
+
+ctx.shadowColor="rgba(40，25，15，.35)"；
+ctx.shadowBlur=r*.45；
+ctx.shadowOffsetY=r*.2；
+
+ctx.fill()；
+
+ctx.shadowColor="透明"；
+
+ctx.strokeStyle="rgba(255，255，255，.65)"；
+ctx.lineWidth=r*.08；
+ctx.stroke()；
+
+ /*
+  琉璃高光
+ */
+
+ctx.beginPath()；
+
+ctx.arc(
+-r*.3，
+-r*.35，
+R*.17，
+  0,
+Math.PI*2
+ );
+
+ctx.fillStyle="rgba(255，255，255，.75)"；
+ctx.fill()；
+
+ctx.restore()；
+
+}
+
+/*
+ 点击棋盘
+ */
+
+canvas.addEventListener(
+"指针向下"，
+ function(e){
+
+if(turn！==1||gameOver)
+返回；
+
+Const rect=canvas.getBoundingClientRect()；
+
+常数比例=
+canvas.width/rect.width；
+
+常数px=
+(e.clientX-rect.left)*刻度；
+
+常数py=
+(e.clientY-rect.top)*刻度；
+
+const pad=canvas.width*.07；
+
+常数步长=
+(帆布宽度垫板*2)/(N-1)；
+
+常数y=
+Math.round((px-pad)/步长)；
+
+常数x=
+Math.round((py-pad)/step)；
+
+if(！inner(x，y))
+返回；
+
+if(移动(x，y，1))
+人工智能()；
+
+ },
+{passive:true}
+);
+
+window.addEventListener(
+"调整大小"，
+调整大小
+);
+
+board=newboard()；
+
+调整大小()；
+
+</script>
+
+</body>
+</html>
